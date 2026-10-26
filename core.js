@@ -1,4 +1,4 @@
-/* Min-Basile Bouchon v0.4 — no dependencies. */
+/* Min-Basile Bouchon v0.5 — no dependencies. */
 (function (root) {
   'use strict';
   const defaults = {width:300,height:450,top:28,bottom:30,left:26,right:26,diameter:3.2,gap:0.75,rowGap:0.75,stroke:0.01,color:'#ff0000',shape:'circle',layoutMode:'column',charactersPerRow:14,bitPitch:3.95,columnSpacing:'auto',rowGroupSpacing:'auto',columnPitch:17.7142857143,rowGroupPitch:35};
