@@ -13,7 +13,25 @@ function formParams(){const f=$('settingsForm');return Object.fromEntries(Object
 function syncPresets(){const f=$('settingsForm');const board=f.elements.width.value+','+f.elements.height.value;$('preset').value=['300,450','300,400','600,450'].includes(board)?board:'custom';const ms=['top','bottom','left','right'].map(k=>f.elements[k].value);$('marginPreset').value=ms.every(v=>v===ms[0])&&['10','20','40'].includes(ms[0])?ms[0]:'custom';}
 function syncFields(){const f=$('settingsForm'),column=f.elements.layoutMode.value==='column';$('columnFields').hidden=!column;for(const n of $('columnFields').querySelectorAll('input,select'))n.disabled=!column;f.elements.columnPitch.disabled=!column||f.elements.columnSpacing.value==='auto';f.elements.rowGroupPitch.disabled=!column||f.elements.rowGroupSpacing.value==='auto';for(const label of document.querySelectorAll('.continuousField')){label.hidden=column;label.querySelector('input').disabled=column;}}
 function spacingInfo(r){return r.p.layoutMode==='column'?`열 중심 간격 ${r.columnPitch.toFixed(4)} mm · 비트 중심 간격 ${r.p.bitPitch.toFixed(4)} mm · 행 그룹 시작 중심 간격 ${r.rowGroupPitch.toFixed(4)} mm`:`가로 중심 간격 ${(r.p.diameter+r.p.gap).toFixed(4)} mm · 세로 중심 간격 ${(r.p.diameter+r.p.rowGap).toFixed(4)} mm`;}
-function marginPreview(){syncFields();try{$('calculatedSpacing').textContent=spacingInfo(B.layout($('corrected').value,formParams()));}catch(e){$('calculatedSpacing').textContent=e.message;}const p=formParams();if(![p.width,p.height,p.top,p.left,p.right,p.bottom].every(Number.isFinite)||p.width<=0||p.height<=0)return;$('marginPreview').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${p.width} ${p.height}"><rect width="${p.width}" height="${p.height}" fill="#d8e2d2" stroke="#4a6250" stroke-width="1"/><rect x="${p.left}" y="${p.top}" width="${Math.max(0,p.width-p.left-p.right)}" height="${Math.max(0,p.height-p.top-p.bottom)}" fill="#fff" stroke="#78927a" stroke-dasharray="3 3"/></svg>`;}
+function marginPreview(){
+ syncFields();
+ const p=formParams();
+ if(![p.width,p.height,p.top,p.left,p.right,p.bottom].every(Number.isFinite)||p.width<=0||p.height<=0)return;
+ const host=$('marginPreview'),ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');
+ svg.setAttribute('viewBox',`0 0 ${p.width} ${p.height}`);
+ const el=(tag,attrs)=>{const n=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);return n;};
+ el('rect',{width:p.width,height:p.height,fill:'#d8e2d2',stroke:'#4a6250','stroke-width':1});
+ el('rect',{x:p.left,y:p.top,width:Math.max(0,p.width-p.left-p.right),height:Math.max(0,p.height-p.top-p.bottom),fill:'#fff',stroke:'#78927a','stroke-width':.5,'stroke-dasharray':'3 3'});
+ try{
+   const previewLayout=B.layout($('corrected').value,p);
+   $('calculatedSpacing').textContent=spacingInfo(previewLayout);
+   const page=previewLayout.pages[0]||previewLayout;
+   for(const h of page.holes)shapeElement(el,h,p,{stroke:p.color,strokeWidth:Math.max(.35,p.stroke)});
+ }catch(e){
+   $('calculatedSpacing').textContent=e.message;
+ }
+ host.replaceChildren(svg);
+}
 $('convert').onclick=()=>{try{correct();B.ascii($('corrected').value);for(const [k,v]of Object.entries(params))$('settingsForm').elements[k].value=v;$('settingError').textContent='';syncFields();syncPresets();marginPreview();$('settings').showModal();}catch(e){invalidate();status(e.message,true);}};
 $('cancel').onclick=()=>$('settings').close();
 $('preset').onchange=e=>{if(e.target.value!=='custom'){const [w,h]=e.target.value.split(',');$('settingsForm').elements.width.value=w;$('settingsForm').elements.height.value=h;marginPreview();}};
