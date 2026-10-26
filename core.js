@@ -155,10 +155,10 @@
       if(r.p.layoutMode==='column') {
         const charIndex=Math.floor(i/7),charsPerPage=r.pages[0].maxRows*r.p.charactersPerRow,pageIndex=Math.floor(charIndex/charsPerPage);
         const page=r.pages[Math.min(pageIndex,r.pages.length-1)],localChar=charIndex-page.pageIndex*charsPerPage;
-        return {...columnPosition(page,localChar,i%7),page:page.pageIndex};
+        return columnPosition(page,localChar,i%7);
       }
       const pageIndex=Math.floor(i/r.capacity),page=r.pages[Math.min(pageIndex,r.pages.length-1)];
-      return {...position(page,i-page.startBit),page:page.pageIndex};
+      return position(page,i-page.startBit);
     }
     const p=r.p,half=(p.diameter+p.stroke)/2;
     if(p.layoutMode==='column')return columnPosition(r,Math.floor(i/7),i%7);
@@ -171,7 +171,7 @@
   function columnPosition(r,charIndex,bitIndex) {
     if(r.pages) {
       const charsPerPage=r.pages[0].maxRows*r.p.charactersPerRow,pageIndex=Math.floor(charIndex/charsPerPage),page=r.pages[Math.min(pageIndex,r.pages.length-1)];
-      return {...columnPosition(page,charIndex-pageIndex*charsPerPage,bitIndex),page:pageIndex};
+      return columnPosition(page,charIndex-pageIndex*charsPerPage,bitIndex);
     }
     const p=r.p,column=charIndex%p.charactersPerRow,rowGroup=Math.floor(charIndex/p.charactersPerRow);
     return {x:p.left+r.columnPitch/2+column*r.columnPitch,y:p.top+rowGroup*r.rowGroupPitch+bitIndex*p.bitPitch};
