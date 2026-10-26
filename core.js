@@ -191,39 +191,6 @@
     if(holeIndex!==r.holes.length)throw Error('타공 개수 불일치: 출력을 중단했습니다.');
     return true;
   }
-  function position(r,i) {
-    const p=r.p,half=(p.diameter+p.stroke)/2;
-    if(p.layoutMode==='column') {
-      return columnPosition(r,Math.floor(i/7),i%7);
-    }
-    return {x:p.left+half+(i%r.cols)*(p.diameter+p.gap),y:p.top+half+Math.floor(i/r.cols)*(p.diameter+p.rowGap)};
-  }
-  function characterTable(text) {
-    ascii(text);
-    return Array.from(text,(character,index)=>({index,character,decimal:character.charCodeAt(0),binary:character.charCodeAt(0).toString(2).padStart(7,'0')}));
-  }
-  function columnPosition(r,charIndex,bitIndex) {
-    const p=r.p,column=charIndex%p.charactersPerRow,rowGroup=Math.floor(charIndex/p.charactersPerRow);
-    return {x:p.left+r.columnPitch/2+column*r.columnPitch,
-      y:p.top+rowGroup*r.rowGroupPitch+bitIndex*p.bitPitch};
-  }
-  function validateColumns(r) {
-    if(r.p.layoutMode!=='column')return true;
-    let holeIndex=0;
-    const p=r.p;
-    for(let charIndex=0;charIndex<r.text.length;charIndex++) {
-      const decimal=r.text.charCodeAt(charIndex),entry=r.characters[charIndex];
-      if(!entry||entry.index!==charIndex||entry.character!==r.text[charIndex]||entry.decimal!==decimal||entry.binary!==decimal.toString(2).padStart(7,'0'))throw Error('문자 디버그 테이블 불일치: 출력을 중단했습니다.');
-      for(let bitIndex=0;bitIndex<7;bitIndex++)if((decimal>>(6-bitIndex))&1) {
-        const h=r.holes[holeIndex++];
-        const expectedX=p.left+(charIndex%p.charactersPerRow+.5)*r.columnPitch;
-        const expectedY=p.top+Math.floor(charIndex/p.charactersPerRow)*r.rowGroupPitch+bitIndex*p.bitPitch;
-        if(!h||Math.abs(h.x-expectedX)>1e-8||Math.abs(h.y-expectedY)>1e-8)throw Error(`문자 ${charIndex}의 세로열 좌표 불일치: 출력을 중단했습니다.`);
-      }
-    }
-    if(holeIndex!==r.holes.length)throw Error('타공 개수 불일치: 출력을 중단했습니다.');
-    return true;
-  }
   const fmt=n=>String(Number(n.toFixed(8)));
   // Export-only geometry. Never mutate the layout or share this with PDF/preview.
   function separators(r,options={}) {
