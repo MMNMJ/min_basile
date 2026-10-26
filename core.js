@@ -119,7 +119,7 @@
         const maxBitRows=Math.floor((centerSpan+1e-9)/rowPitch)+1;
         maxRows=Math.floor(maxBitRows/7);
       } else {
-        const maxBitRows=Math.floor((centerSpan+1e-9)/outer)+1;
+        const minAutoPitch=outer+0.2;const maxBitRows=Math.floor((centerSpan+1e-9)/minAutoPitch)+1;
         maxRows=Math.floor(maxBitRows/7);
       }
       if(maxRows<1)throw Error('현재 판형과 여백에는 7개의 타공 행을 배치할 공간이 없습니다.');
