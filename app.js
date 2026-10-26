@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id),B=Bouchon;
-let result=null,params={...B.defaults},debugRows=[],debugOffset=0,separatorLayout=null,previewPage=0;
+let result=null,params={...B.defaults},debugRows=[],debugOffset=0,separatorLayout=null,previewPage=0,exportPreviewPage=0;
 const example='#include <Servo.h>\n\nServo s;\n\nvoid setup() {\n  s.attach(9);\n}\n\nvoid loop() {\n  s.write(180);\n  delay(1000);\n  s.write(0);\n  delay(1000);\n}\n';
 $('source').value=example;
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
@@ -64,7 +64,7 @@ function render(){if(!result)return;B.validateColumns(result);debugRows=result.c
 $('pagePrev').onclick=()=>{if(previewPage>0){previewPage--;render();}};
 $('pageNext').onclick=()=>{if(result&&previewPage<result.pageCount-1){previewPage++;render();}};
 $('zero').onchange=render;$('margins').onchange=render;
-$('export').onclick=()=>{if(!result)return;try{B.validateColumns(result);}catch(e){invalidate();status(e.message,true);return;}$('exportError').textContent='';if(separatorLayout!==result){$('separatorLength').value=result.p.width-result.p.left-result.p.right;separatorLayout=result;}syncSeparatorControls();$('exportDialog').showModal();};
+$('export').onclick=()=>{if(!result)return;try{B.validateColumns(result);}catch(e){invalidate();status(e.message,true);return;}$('exportError').textContent='';if(separatorLayout!==result){$('separatorLength').value=result.p.width-result.p.left-result.p.right;separatorLayout=result;}exportPreviewPage=Math.min(previewPage,result.pageCount-1);syncSeparatorControls();renderExportPreview();$('exportDialog').showModal();};
 $('exportCancel').onclick=()=>$('exportDialog').close();
 $('exportForm').onsubmit=e=>{e.preventDefault();if(!result)return;
  const formats=[...($('saveSVG').checked?['svg']:[]),...($('savePDF').checked?['pdf']:[])];
@@ -88,14 +88,37 @@ $('debugPrev').onclick=()=>{debugOffset=Math.max(0,debugOffset-100);renderDebug(
 $('debugNext').onclick=()=>{if(debugOffset+100<debugRows.length)debugOffset+=100;renderDebug();};
 
 function separatorOptions(){return {enabled:$('separatorEnabled').checked,color:$('separatorColor').value,stroke:Number($('separatorStroke').value),length:Number($('separatorLength').value),offsetX:Number($('separatorX').value),offsetY:Number($('separatorY').value)};}
+function renderExportPreview(){
+ if(!result)return;
+ const page=result.pages[exportPreviewPage]||result.pages[0],p=page.p,ns='http://www.w3.org/2000/svg';
+ const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox',`0 0 ${p.width} ${p.height}`);svg.setAttribute('aria-label',`출력 미리보기 ${exportPreviewPage+1}페이지`);
+ const el=(tag,attrs)=>{const n=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);return n;};
+ el('rect',{width:p.width,height:p.height,fill:'white'});
+ for(const h of page.holes)shapeElement(el,h,p,{stroke:p.color,strokeWidth:Math.max(.17,p.stroke)});
+ if(result.p.layoutMode==='column'&&$('saveSVG').checked&&$('separatorEnabled').checked){
+   try{
+     const sep=B.separators(page,separatorOptions());
+     for(const line of sep.lines)el('line',{x1:line.x1,y1:line.y,x2:line.x2,y2:line.y,stroke:sep.settings.color,'stroke-width':Math.max(.17,sep.settings.stroke)});
+   }catch(_){}
+ }
+ $('exportPreview').replaceChildren(svg);
+ $('exportPageNav').hidden=result.pageCount<=1;
+ $('exportPageLabel').textContent=`${exportPreviewPage+1} / ${result.pageCount} 페이지`;
+ $('exportPagePrev').disabled=exportPreviewPage===0;
+ $('exportPageNext').disabled=exportPreviewPage>=result.pageCount-1;
+}
+$('exportPagePrev').onclick=()=>{if(exportPreviewPage>0){exportPreviewPage--;renderExportPreview();syncSeparatorControls();}};
+$('exportPageNext').onclick=()=>{if(result&&exportPreviewPage<result.pageCount-1){exportPreviewPage++;renderExportPreview();syncSeparatorControls();}};
+
 function syncSeparatorControls(){
  const available=!!result&&result.p.layoutMode==='column'&&$('saveSVG').checked;
  $('separatorControls').disabled=!available;
  for(const n of $('separatorControls').querySelectorAll('.fields input'))n.disabled=!available||!$('separatorEnabled').checked;
  $('exportError').textContent='';
  if(!available){$('separatorStatus').textContent='SVG 출력과 7-bit Column Layout을 선택하면 사용할 수 있습니다.';return;}
- try{const s=B.separators(result.pages[previewPage]||result.pages[0],separatorOptions());$('separatorStatus').textContent=s.lines.length?`SVG 구분선 ${s.lines.length}개 · 별도 편집 그룹으로 저장`:'구분선 OFF · 타공 원만 저장';}
+ try{const s=B.separators(result.pages[exportPreviewPage]||result.pages[0],separatorOptions());$('separatorStatus').textContent=s.lines.length?`SVG 구분선 ${s.lines.length}개 · 별도 편집 그룹으로 저장`:'구분선 OFF · 타공만 저장';}
  catch(error){$('separatorStatus').textContent=error.message;}
 }
-$('saveSVG').addEventListener('change',syncSeparatorControls);
-$('separatorControls').addEventListener('input',syncSeparatorControls);
+$('saveSVG').addEventListener('change',()=>{syncSeparatorControls();renderExportPreview();});
+$('savePDF').addEventListener('change',renderExportPreview);
+$('separatorControls').addEventListener('input',()=>{syncSeparatorControls();renderExportPreview();});
