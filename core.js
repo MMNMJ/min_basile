@@ -1,7 +1,7 @@
 /* Min-Basile Bouchon v0.5 — no dependencies. */
 (function (root) {
   'use strict';
-  const defaults = {width:300,height:450,top:28,bottom:30,left:26,right:26,diameter:3.2,gap:0.75,rowGap:0.75,stroke:0.01,color:'#ff0000',shape:'circle',layoutMode:'column',charactersPerRow:14,bitPitch:3.95,columnSpacing:'auto',rowGroupSpacing:'auto',columnPitch:17.7142857143,rowGroupPitch:35};
+  const defaults = {width:300,height:450,top:28,bottom:30,left:26,right:26,diameter:3.2,gap:0.75,rowGap:0.75,stroke:0.01,color:'#ff0000',shape:'circle',layoutMode:'column',charactersPerRow:14,columnSpacing:'auto',columnPitch:17.7142857143,rowSpacing:'auto',rowPitch:3.95};
   const ops = ['%:%:','>>=','<<=','->*','...','##','::','.*','->','++','--','<<','>>','<=','>=','==','!=','&&','||','*=','/=','%=','+=','-=','&=','^=','|=','<:',':>','<%','%>','%:'];
   function lex(s) {
     const out=[]; let i=0;
@@ -78,10 +78,10 @@
     if(!['circle','diamond','triangle','heart','square'].includes(p.shape))throw Error('올바른 타공 모양을 선택하세요.');
     if(p.layoutMode==='continuous')keys.push('gap','rowGap');
     else {
-      keys.push('bitPitch','charactersPerRow');
-      for(const k of ['columnSpacing','rowGroupSpacing'])if(!['auto','manual'].includes(p[k]))throw Error('간격 계산 방식을 선택하세요.');
+      keys.push('charactersPerRow');
+      for(const k of ['columnSpacing','rowSpacing'])if(!['auto','manual'].includes(p[k]))throw Error('간격 계산 방식을 선택하세요.');
       if(p.columnSpacing==='manual')keys.push('columnPitch');
-      if(p.rowGroupSpacing==='manual')keys.push('rowGroupPitch');
+      if(p.rowSpacing==='manual')keys.push('rowPitch');
       if(!Number.isInteger(p.charactersPerRow)||p.charactersPerRow<1||p.charactersPerRow>10000)throw Error('Characters per row는 1~10,000 사이 정수여야 합니다.');
     }
     for(const k of keys)if(typeof p[k]!=='number'||!Number.isFinite(p[k])||p[k]<0)throw Error('치수는 0 이상의 유한한 숫자로 입력하세요.');
@@ -91,7 +91,7 @@
     if(!/^#[0-9a-fA-F]{6}$/.test(p.color))throw Error('선 색상은 RGB 6자리 HEX 값이어야 합니다.');
 
     const allBits=ascii(text),w=p.width-p.left-p.right,h=p.height-p.top-p.bottom,outer=p.diameter+p.stroke;
-    let cols,maxRows,capacityPerPage,columnPitch,rowGroupPitch,groupHeight,occupiedHeight;
+    let cols,maxRows,capacityPerPage,columnPitch,rowPitch;
 
     if(p.layoutMode==='continuous') {
       if(p.gap<p.stroke||p.rowGap<p.stroke)throw Error('타공·행 간격은 선 두께 이상이어야 합니다.');
@@ -102,32 +102,41 @@
       if(capacityPerPage<1)throw Error('현재 판형과 여백에는 타공을 배치할 공간이 없습니다.');
     } else {
       cols=p.charactersPerRow;
-      groupHeight=6*p.bitPitch+outer;
-      occupiedHeight=6*p.bitPitch+outer/2;
-      if(p.top+1e-9<outer/2)throw Error('위 여백(첫 중심)은 타공 반지름 + 선 두께 절반 이상이어야 합니다.');
+      const half=outer/2;
+      if(p.top+1e-9<half)throw Error('위 여백(첫 중심)은 타공 반지름 + 선 두께 절반 이상이어야 합니다.');
       columnPitch=p.columnSpacing==='auto'?w/cols:p.columnPitch;
-      if(p.bitPitch+1e-9<outer||columnPitch+1e-9<outer)throw Error('비트·열 중심 간격은 타공 크기 + 선 두께 이상이어야 합니다.');
-      if(w<outer||h+1e-9<occupiedHeight||(cols-.5)*columnPitch+outer/2>w+1e-9)throw Error('현재 판형과 여백에는 문자 열을 배치할 공간이 없습니다.');
-      if(p.rowGroupSpacing==='manual') {
-        rowGroupPitch=p.rowGroupPitch;
-        if(rowGroupPitch<=0)throw Error('행 그룹 중심 간격은 0보다 커야 합니다.');
-        if(rowGroupPitch+1e-9<occupiedHeight)throw Error('행 그룹 중심 간격이 7비트 그룹 높이보다 작습니다.');
-        maxRows=Math.floor((h-occupiedHeight+1e-9)/rowGroupPitch)+1;
+      if(columnPitch+1e-9<outer)throw Error('열 중심 간격은 타공 크기 + 선 두께 이상이어야 합니다.');
+      if(w<outer||(cols-.5)*columnPitch+half>w+1e-9)throw Error('현재 판형과 여백에는 문자 열을 배치할 공간이 없습니다.');
+
+      const lastSafeCenter=p.height-p.bottom-half;
+      const centerSpan=lastSafeCenter-p.top;
+      if(centerSpan<6*outer-1e-9)throw Error('현재 판형과 여백에는 7개의 타공 행을 배치할 공간이 없습니다.');
+
+      if(p.rowSpacing==='manual') {
+        rowPitch=p.rowPitch;
+        if(rowPitch<=0)throw Error('행 중심 간격은 0보다 커야 합니다.');
+        if(rowPitch+1e-9<outer)throw Error('행 중심 간격은 타공 크기 + 선 두께 이상이어야 합니다.');
+        const maxBitRows=Math.floor((centerSpan+1e-9)/rowPitch)+1;
+        maxRows=Math.floor(maxBitRows/7);
       } else {
-        maxRows=Math.floor((h-occupiedHeight+1e-9)/groupHeight)+1;
+        const maxBitRows=Math.floor((centerSpan+1e-9)/outer)+1;
+        maxRows=Math.floor(maxBitRows/7);
       }
-      if(maxRows<1)throw Error('현재 판형과 여백에는 7비트 그룹을 배치할 공간이 없습니다.');
+      if(maxRows<1)throw Error('현재 판형과 여백에는 7개의 타공 행을 배치할 공간이 없습니다.');
       capacityPerPage=maxRows*cols*7;
     }
 
     const pages=[];
     if(p.layoutMode==='column') {
       const charsPerPage=maxRows*cols;
+      const half=outer/2,lastSafeCenter=p.height-p.bottom-half,centerSpan=lastSafeCenter-p.top;
       for(let startChar=0,pageIndex=0;startChar<text.length;startChar+=charsPerPage,pageIndex++) {
         const pageText=text.slice(startChar,startChar+charsPerPage);
         const rows=Math.ceil(pageText.length/cols);
-        const pageRowGroupPitch=p.rowGroupSpacing==='auto'?(rows>1?(h-occupiedHeight)/(rows-1):7*p.bitPitch):p.rowGroupPitch;
-        const page={p,text:pageText,bits:ascii(pageText),holes:[],cols,rows,maxRows,capacity:capacityPerPage,columnPitch,rowGroupPitch:pageRowGroupPitch,groupHeight,startCharacter:startChar,startBit:startChar*7,pageIndex};
+        const bitRows=rows*7;
+        const pageRowPitch=p.rowSpacing==='auto'?(bitRows>1?centerSpan/(bitRows-1):0):p.rowPitch;
+        if(bitRows>1&&pageRowPitch+1e-9<outer)throw Error('자동 행 간격이 타공 크기보다 작습니다. 판형을 키우거나 문자 열 수를 늘리세요.');
+        const page={p,text:pageText,bits:ascii(pageText),holes:[],cols,rows,bitRows,maxRows,capacity:capacityPerPage,columnPitch,rowPitch:pageRowPitch,startCharacter:startChar,startBit:startChar*7,pageIndex};
         page.characters=characterTable(pageText);
         for(const character of page.characters)for(let bitIndex=0;bitIndex<7;bitIndex++)if(character.binary[bitIndex]==='1')page.holes.push(columnPosition(page,character.index,bitIndex));
         validateColumns(page);
@@ -174,7 +183,7 @@
       return columnPosition(page,charIndex-pageIndex*charsPerPage,bitIndex);
     }
     const p=r.p,column=charIndex%p.charactersPerRow,rowGroup=Math.floor(charIndex/p.charactersPerRow);
-    return {x:p.left+r.columnPitch/2+column*r.columnPitch,y:p.top+rowGroup*r.rowGroupPitch+bitIndex*p.bitPitch};
+    return {x:p.left+r.columnPitch/2+column*r.columnPitch,y:p.top+(rowGroup*7+bitIndex)*r.rowPitch};
   }
   function validateColumns(r) {
     if(r.pages){for(const page of r.pages)validateColumns(page);return true;}
@@ -184,7 +193,7 @@
       const decimal=r.text.charCodeAt(charIndex),entry=r.characters[charIndex];
       if(!entry||entry.index!==charIndex||entry.character!==r.text[charIndex]||entry.decimal!==decimal||entry.binary!==decimal.toString(2).padStart(7,'0'))throw Error('문자 디버그 테이블 불일치: 출력을 중단했습니다.');
       for(let bitIndex=0;bitIndex<7;bitIndex++)if((decimal>>(6-bitIndex))&1) {
-        const h=r.holes[holeIndex++],expectedX=p.left+(charIndex%p.charactersPerRow+.5)*r.columnPitch,expectedY=p.top+Math.floor(charIndex/p.charactersPerRow)*r.rowGroupPitch+bitIndex*p.bitPitch;
+        const h=r.holes[holeIndex++],expectedX=p.left+(charIndex%p.charactersPerRow+.5)*r.columnPitch,expectedY=p.top+(Math.floor(charIndex/p.charactersPerRow)*7+bitIndex)*r.rowPitch;
         if(!h||Math.abs(h.x-expectedX)>1e-8||Math.abs(h.y-expectedY)>1e-8)throw Error(`문자 ${charIndex}의 세로열 좌표 불일치: 출력을 중단했습니다.`);
       }
     }
@@ -205,11 +214,11 @@
     if(x1<0||x2>p.width)throw Error('구분선이 판형의 좌우 경계를 벗어납니다. 길이 또는 가로 이동을 조정하세요.');
     const lines=[];
     for(let group=0;group<r.rows;group++) {
-      const bottom=p.top+group*r.rowGroupPitch+6*p.bitPitch+halfHole;
-      const nextTop=group+1<r.rows?p.top+(group+1)*r.rowGroupPitch-halfHole:null;
-      const y=(nextTop===null?bottom+2:(bottom+nextTop)/2)+settings.offsetY;
+      const lastRowY=p.top+(group*7+6)*r.rowPitch;
+      const nextRowY=group+1<r.rows?p.top+(group+1)*7*r.rowPitch:null;
+      const y=(nextRowY===null?lastRowY+halfHole+2:(lastRowY+nextRowY)/2)+settings.offsetY;
       if(y-halfLine<0||y+halfLine>p.height)throw Error(`${group+1}번 구분선이 판형의 위아래 경계를 벗어납니다.`);
-      if(y-halfLine<=bottom+1e-9||(nextTop!==null&&y+halfLine>=nextTop-1e-9))throw Error(`${group+1}번 구분선이 7비트 그룹 영역과 겹치거나 간격이 부족합니다. 구분선 두께·세로 이동을 조정하거나 구분선을 끄세요.`);
+      if(y-halfLine<=lastRowY+halfHole+1e-9||(nextRowY!==null&&y+halfLine>=nextRowY-halfHole-1e-9))throw Error(`${group+1}번 구분선이 타공 행과 겹치거나 간격이 부족합니다. 구분선 두께·세로 이동을 조정하거나 구분선을 끄세요.`);
       lines.push({id:`row-separator-${group+1}`,x1,x2,y});
     }
     return {settings,lines};
