@@ -1,7 +1,7 @@
-/* Min-Basile Bouchon v0.4 — no dependencies. */
+/* Min-Basile Bouchon v0.5 — no dependencies. */
 (function (root) {
   'use strict';
-  const defaults = {width:300,height:450,top:28,bottom:30,left:26,right:26,diameter:3.2,gap:0.75,rowGap:0.75,stroke:0.01,color:'#ff0000',layoutMode:'column',charactersPerRow:14,bitPitch:3.95,columnSpacing:'auto',rowGroupSpacing:'auto',columnPitch:17.7142857143,rowGroupPitch:35};
+  const defaults = {width:300,height:450,top:28,bottom:30,left:26,right:26,diameter:3.2,gap:0.75,rowGap:0.75,stroke:0.01,color:'#ff0000',shape:'circle',layoutMode:'column',charactersPerRow:14,bitPitch:3.95,columnSpacing:'auto',rowGroupSpacing:'auto',columnPitch:17.7142857143,rowGroupPitch:35};
   const ops = ['%:%:','>>=','<<=','->*','...','##','::','.*','->','++','--','<<','>>','<=','>=','==','!=','&&','||','*=','/=','%=','+=','-=','&=','^=','|=','<:',':>','<%','%>','%:'];
   function lex(s) {
     const out=[]; let i=0;
@@ -75,6 +75,7 @@
     const p={...defaults,...options};
     const keys=['width','height','top','bottom','left','right','diameter','stroke'];
     if(!['continuous','column'].includes(p.layoutMode))throw Error('올바른 Layout Mode를 선택하세요.');
+    if(!['circle','diamond','triangle','heart','square'].includes(p.shape))throw Error('올바른 타공 모양을 선택하세요.');
     if(p.layoutMode==='continuous')keys.push('gap','rowGap');
     else {
       keys.push('bitPitch','charactersPerRow');
@@ -84,56 +85,83 @@
       if(!Number.isInteger(p.charactersPerRow)||p.charactersPerRow<1||p.charactersPerRow>10000)throw Error('Characters per row는 1~10,000 사이 정수여야 합니다.');
     }
     for(const k of keys)if(typeof p[k]!=='number'||!Number.isFinite(p[k])||p[k]<0)throw Error('치수는 0 이상의 유한한 숫자로 입력하세요.');
-    if(p.width<=0||p.height<=0||p.diameter<=0||p.stroke<=0)throw Error('판형, 원 지름, 선 두께는 0보다 커야 합니다.');
+    if(p.width<=0||p.height<=0||p.diameter<=0||p.stroke<=0)throw Error('판형, 타공 크기, 선 두께는 0보다 커야 합니다.');
     if(p.width>10000||p.height>10000)throw Error('판형은 각 변 10,000mm 이하로 설정하세요.');
-    if(p.stroke>=p.diameter)throw Error('선 두께는 원 지름보다 작아야 합니다.');
+    if(p.stroke>=p.diameter)throw Error('선 두께는 타공 크기보다 작아야 합니다.');
     if(!/^#[0-9a-fA-F]{6}$/.test(p.color))throw Error('선 색상은 RGB 6자리 HEX 값이어야 합니다.');
-    const bits=ascii(text),w=p.width-p.left-p.right,h=p.height-p.top-p.bottom;
-    const outer=p.diameter+p.stroke;
-    let cols,rows,maxRows,capacity,columnPitch,rowGroupPitch,groupHeight;
-    const overflow=()=>{throw Error('입력한 코드가 현재 판형에 모두 들어가지 않습니다. 원 크기, 간격, 문자 열 수, 여백, 판형 크기를 조정하세요.');};
+
+    const allBits=ascii(text),w=p.width-p.left-p.right,h=p.height-p.top-p.bottom,outer=p.diameter+p.stroke;
+    let cols,maxRows,capacityPerPage,columnPitch,rowGroupPitch,groupHeight,occupiedHeight;
+
     if(p.layoutMode==='continuous') {
-      if(p.gap<p.stroke||p.rowGap<p.stroke)throw Error('원·행 간격은 선 두께 이상이어야 합니다.');
+      if(p.gap<p.stroke||p.rowGap<p.stroke)throw Error('타공·행 간격은 선 두께 이상이어야 합니다.');
       const px=p.diameter+p.gap,py=p.diameter+p.rowGap;
       cols=w+1e-9<outer?0:Math.floor((w-outer+1e-9)/px)+1;
       maxRows=h+1e-9<outer?0:Math.floor((h-outer+1e-9)/py)+1;
-      capacity=cols*maxRows;rows=cols?Math.ceil(bits.length/cols):0;
-      if(bits.length>capacity)overflow();
+      capacityPerPage=cols*maxRows;
+      if(capacityPerPage<1)throw Error('현재 판형과 여백에는 타공을 배치할 공간이 없습니다.');
     } else {
-      cols=p.charactersPerRow;rows=Math.ceil(text.length/cols);
+      cols=p.charactersPerRow;
       groupHeight=6*p.bitPitch+outer;
-      const occupiedHeight=6*p.bitPitch+outer/2;
-      if(p.top+1e-9<outer/2)throw Error('위 여백(첫 중심)은 원 반지름 + 선 두께 절반 이상이어야 합니다.');
+      occupiedHeight=6*p.bitPitch+outer/2;
+      if(p.top+1e-9<outer/2)throw Error('위 여백(첫 중심)은 타공 반지름 + 선 두께 절반 이상이어야 합니다.');
       columnPitch=p.columnSpacing==='auto'?w/cols:p.columnPitch;
-      // Automatic groups spread from the top safe center to the bottom safe center.
-      // A single group stays at the top. Never shrink the seven-bit pitch.
-      rowGroupPitch=p.rowGroupSpacing==='auto'?(rows>1?(h-occupiedHeight)/(rows-1):7*p.bitPitch):p.rowGroupPitch;
-      if(p.bitPitch+1e-9<outer||columnPitch+1e-9<outer)throw Error('비트·열 중심 간격은 원 지름 + 선 두께 이상이어야 합니다.');
-      if(w<outer||h+1e-9<occupiedHeight||(cols-.5)*columnPitch+outer/2>w+1e-9)overflow();
-      if(rows>1&&rowGroupPitch+1e-9<occupiedHeight)overflow();
-      if(rowGroupPitch<=0)throw Error('행 그룹 중심 간격은 0보다 커야 합니다.');
-      if(p.rowGroupSpacing==='manual'&&rowGroupPitch+1e-9<occupiedHeight)throw Error('행 그룹 중심 간격이 7비트 그룹 높이보다 작습니다.');
-      if((rows-1)*rowGroupPitch+occupiedHeight>h+1e-9)overflow();
-      const minPitch=p.rowGroupSpacing==='auto'?groupHeight:rowGroupPitch;
-      maxRows=Math.floor((h-occupiedHeight+1e-9)/minPitch)+1;
-      capacity=maxRows*cols*7;
-    }
-    const r={p,text,bits,holes:[],cols,rows,maxRows,capacity,columnPitch,rowGroupPitch,groupHeight};
-    r.characters=characterTable(text);
-    if(p.layoutMode==='column') {
-      for(const character of r.characters)for(let bitIndex=0;bitIndex<7;bitIndex++) {
-        if(character.binary[bitIndex]==='1')r.holes.push(columnPosition(r,character.index,bitIndex));
+      if(p.bitPitch+1e-9<outer||columnPitch+1e-9<outer)throw Error('비트·열 중심 간격은 타공 크기 + 선 두께 이상이어야 합니다.');
+      if(w<outer||h+1e-9<occupiedHeight||(cols-.5)*columnPitch+outer/2>w+1e-9)throw Error('현재 판형과 여백에는 문자 열을 배치할 공간이 없습니다.');
+      if(p.rowGroupSpacing==='manual') {
+        rowGroupPitch=p.rowGroupPitch;
+        if(rowGroupPitch<=0)throw Error('행 그룹 중심 간격은 0보다 커야 합니다.');
+        if(rowGroupPitch+1e-9<occupiedHeight)throw Error('행 그룹 중심 간격이 7비트 그룹 높이보다 작습니다.');
+        maxRows=Math.floor((h-occupiedHeight+1e-9)/rowGroupPitch)+1;
+      } else {
+        maxRows=Math.floor((h-occupiedHeight+1e-9)/groupHeight)+1;
       }
-      validateColumns(r);
-    } else for(let i=0;i<bits.length;i++)if(bits[i]==='1')r.holes.push(position(r,i));
-    return r;
+      if(maxRows<1)throw Error('현재 판형과 여백에는 7비트 그룹을 배치할 공간이 없습니다.');
+      capacityPerPage=maxRows*cols*7;
+    }
+
+    const pages=[];
+    if(p.layoutMode==='column') {
+      const charsPerPage=maxRows*cols;
+      for(let startChar=0,pageIndex=0;startChar<text.length;startChar+=charsPerPage,pageIndex++) {
+        const pageText=text.slice(startChar,startChar+charsPerPage);
+        const rows=Math.ceil(pageText.length/cols);
+        const pageRowGroupPitch=p.rowGroupSpacing==='auto'?(rows>1?(h-occupiedHeight)/(rows-1):7*p.bitPitch):p.rowGroupPitch;
+        const page={p,text:pageText,bits:ascii(pageText),holes:[],cols,rows,maxRows,capacity:capacityPerPage,columnPitch,rowGroupPitch:pageRowGroupPitch,groupHeight,startCharacter:startChar,startBit:startChar*7,pageIndex};
+        page.characters=characterTable(pageText);
+        for(const character of page.characters)for(let bitIndex=0;bitIndex<7;bitIndex++)if(character.binary[bitIndex]==='1')page.holes.push(columnPosition(page,character.index,bitIndex));
+        validateColumns(page);
+        pages.push(page);
+      }
+    } else {
+      for(let startBit=0,pageIndex=0;startBit<allBits.length;startBit+=capacityPerPage,pageIndex++) {
+        const pageBits=allBits.slice(startBit,startBit+capacityPerPage),rows=Math.ceil(pageBits.length/cols);
+        const page={p,text:'',bits:pageBits,holes:[],cols,rows,maxRows,capacity:capacityPerPage,startBit,pageIndex};
+        for(let i=0;i<pageBits.length;i++)if(pageBits[i]==='1')page.holes.push(position(page,i));
+        pages.push(page);
+      }
+    }
+    if(!pages.length)throw Error('변환할 코드가 없습니다.');
+    const pageCount=pages.length;
+    for(const page of pages)page.pageCount=pageCount;
+    const first=pages[0];
+    return {...first,p,text,bits:allBits,pages,pageCount,characters:characterTable(text),
+      holes:pages.flatMap(page=>page.holes.map(h=>({...h,page:page.pageIndex}))),
+      capacity:capacityPerPage,totalCapacity:capacityPerPage*pageCount};
   }
   // Shared by preview (including zero guides), SVG and PDF.
   function position(r,i) {
-    const p=r.p,half=(p.diameter+p.stroke)/2;
-    if(p.layoutMode==='column') {
-      return columnPosition(r,Math.floor(i/7),i%7);
+    if(r.pages) {
+      if(r.p.layoutMode==='column') {
+        const charIndex=Math.floor(i/7),charsPerPage=r.pages[0].maxRows*r.p.charactersPerRow,pageIndex=Math.floor(charIndex/charsPerPage);
+        const page=r.pages[Math.min(pageIndex,r.pages.length-1)],localChar=charIndex-page.pageIndex*charsPerPage;
+        return columnPosition(page,localChar,i%7);
+      }
+      const pageIndex=Math.floor(i/r.capacity),page=r.pages[Math.min(pageIndex,r.pages.length-1)];
+      return position(page,i-page.startBit);
     }
+    const p=r.p,half=(p.diameter+p.stroke)/2;
+    if(p.layoutMode==='column')return columnPosition(r,Math.floor(i/7),i%7);
     return {x:p.left+half+(i%r.cols)*(p.diameter+p.gap),y:p.top+half+Math.floor(i/r.cols)*(p.diameter+p.rowGap)};
   }
   function characterTable(text) {
@@ -141,21 +169,22 @@
     return Array.from(text,(character,index)=>({index,character,decimal:character.charCodeAt(0),binary:character.charCodeAt(0).toString(2).padStart(7,'0')}));
   }
   function columnPosition(r,charIndex,bitIndex) {
+    if(r.pages) {
+      const charsPerPage=r.pages[0].maxRows*r.p.charactersPerRow,pageIndex=Math.floor(charIndex/charsPerPage),page=r.pages[Math.min(pageIndex,r.pages.length-1)];
+      return columnPosition(page,charIndex-pageIndex*charsPerPage,bitIndex);
+    }
     const p=r.p,column=charIndex%p.charactersPerRow,rowGroup=Math.floor(charIndex/p.charactersPerRow);
-    return {x:p.left+r.columnPitch/2+column*r.columnPitch,
-      y:p.top+rowGroup*r.rowGroupPitch+bitIndex*p.bitPitch};
+    return {x:p.left+r.columnPitch/2+column*r.columnPitch,y:p.top+rowGroup*r.rowGroupPitch+bitIndex*p.bitPitch};
   }
   function validateColumns(r) {
+    if(r.pages){for(const page of r.pages)validateColumns(page);return true;}
     if(r.p.layoutMode!=='column')return true;
-    let holeIndex=0;
-    const p=r.p;
+    let holeIndex=0;const p=r.p;
     for(let charIndex=0;charIndex<r.text.length;charIndex++) {
       const decimal=r.text.charCodeAt(charIndex),entry=r.characters[charIndex];
       if(!entry||entry.index!==charIndex||entry.character!==r.text[charIndex]||entry.decimal!==decimal||entry.binary!==decimal.toString(2).padStart(7,'0'))throw Error('문자 디버그 테이블 불일치: 출력을 중단했습니다.');
       for(let bitIndex=0;bitIndex<7;bitIndex++)if((decimal>>(6-bitIndex))&1) {
-        const h=r.holes[holeIndex++];
-        const expectedX=p.left+(charIndex%p.charactersPerRow+.5)*r.columnPitch;
-        const expectedY=p.top+Math.floor(charIndex/p.charactersPerRow)*r.rowGroupPitch+bitIndex*p.bitPitch;
+        const h=r.holes[holeIndex++],expectedX=p.left+(charIndex%p.charactersPerRow+.5)*r.columnPitch,expectedY=p.top+Math.floor(charIndex/p.charactersPerRow)*r.rowGroupPitch+bitIndex*p.bitPitch;
         if(!h||Math.abs(h.x-expectedX)>1e-8||Math.abs(h.y-expectedY)>1e-8)throw Error(`문자 ${charIndex}의 세로열 좌표 불일치: 출력을 중단했습니다.`);
       }
     }
@@ -185,37 +214,48 @@
     }
     return {settings,lines};
   }
+  function shapeSvg(h,p) {
+    const r=p.diameter/2,x=fmt(h.x),y=fmt(h.y),rr=fmt(r);
+    if(p.shape==='circle')return `<circle cx="${x}" cy="${y}" r="${rr}"/>`;
+    if(p.shape==='square')return `<rect x="${fmt(h.x-r)}" y="${fmt(h.y-r)}" width="${fmt(p.diameter)}" height="${fmt(p.diameter)}"/>`;
+    if(p.shape==='diamond')return `<path d="M ${x} ${fmt(h.y-r)} L ${fmt(h.x+r)} ${y} L ${x} ${fmt(h.y+r)} L ${fmt(h.x-r)} ${y} Z"/>`;
+    if(p.shape==='triangle')return `<path d="M ${x} ${fmt(h.y-r)} L ${fmt(h.x+r)} ${fmt(h.y+r)} L ${fmt(h.x-r)} ${fmt(h.y+r)} Z"/>`;
+    return `<path d="M ${x} ${fmt(h.y+r*.95)} C ${fmt(h.x-r*.95)} ${fmt(h.y+r*.25)} ${fmt(h.x-r*.9)} ${fmt(h.y-r*.65)} ${fmt(h.x-r*.42)} ${fmt(h.y-r*.65)} C ${fmt(h.x-r*.14)} ${fmt(h.y-r*.65)} ${x} ${fmt(h.y-r*.42)} ${x} ${fmt(h.y-r*.2)} C ${x} ${fmt(h.y-r*.42)} ${fmt(h.x+r*.14)} ${fmt(h.y-r*.65)} ${fmt(h.x+r*.42)} ${fmt(h.y-r*.65)} C ${fmt(h.x+r*.9)} ${fmt(h.y-r*.65)} ${fmt(h.x+r*.95)} ${fmt(h.y+r*.25)} ${x} ${fmt(h.y+r*.95)} Z"/>`;
+  }
   function svg(r,separatorOptions={}) {
+    if(r.pages&&r.pages.length!==1)throw Error('여러 페이지 SVG는 페이지별로 저장해야 합니다.');
+    if(r.pages)r=r.pages[0];
     validateColumns(r);
     const p=r.p,{settings,lines}=separators(r,separatorOptions);
     const separatorGroup=lines.length?`<g id="row-group-separators" fill="none" stroke="${settings.color}" stroke-width="${fmt(settings.stroke)}" stroke-linecap="butt">\n${lines.map(l=>`<line id="${l.id}" x1="${fmt(l.x1)}" y1="${fmt(l.y)}" x2="${fmt(l.x2)}" y2="${fmt(l.y)}"/>`).join('\n')}\n</g>\n`:'';
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(p.width)}mm" height="${fmt(p.height)}mm" viewBox="0 0 ${fmt(p.width)} ${fmt(p.height)}">\n<g fill="none" stroke="${p.color}" stroke-width="${fmt(p.stroke)}">\n${r.holes.map(h=>`<circle cx="${fmt(h.x)}" cy="${fmt(h.y)}" r="${fmt(p.diameter/2)}"/>`).join('\n')}\n</g>\n${separatorGroup}</svg>\n`;
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(p.width)}mm" height="${fmt(p.height)}mm" viewBox="0 0 ${fmt(p.width)} ${fmt(p.height)}">\n<g fill="none" stroke="${p.color}" stroke-width="${fmt(p.stroke)}" stroke-linejoin="round">\n${r.holes.map(h=>shapeSvg(h,p)).join('\n')}\n</g>\n${separatorGroup}</svg>\n`;
   }
   // PDF user-space uses points; this matrix makes every path coordinate millimetres.
   // Four cubic Bezier arcs are the standard vector representation of a PDF circle.
+  function pdfPathCommands(h,p) {
+    const x=h.x,y=h.y,r=p.diameter/2,k=0.5522847498307936,d=r*k;
+    if(p.shape==='circle')return [`${fmt(x+r)} ${fmt(y)} m`,`${fmt(x+r)} ${fmt(y+d)} ${fmt(x+d)} ${fmt(y+r)} ${fmt(x)} ${fmt(y+r)} c`,`${fmt(x-d)} ${fmt(y+r)} ${fmt(x-r)} ${fmt(y+d)} ${fmt(x-r)} ${fmt(y)} c`,`${fmt(x-r)} ${fmt(y-d)} ${fmt(x-d)} ${fmt(y-r)} ${fmt(x)} ${fmt(y-r)} c`,`${fmt(x+d)} ${fmt(y-r)} ${fmt(x+r)} ${fmt(y-d)} ${fmt(x+r)} ${fmt(y)} c`,'h S'];
+    if(p.shape==='square')return [`${fmt(x-r)} ${fmt(y-r)} m`,`${fmt(x+r)} ${fmt(y-r)} l`,`${fmt(x+r)} ${fmt(y+r)} l`,`${fmt(x-r)} ${fmt(y+r)} l`,'h S'];
+    if(p.shape==='diamond')return [`${fmt(x)} ${fmt(y-r)} m`,`${fmt(x+r)} ${fmt(y)} l`,`${fmt(x)} ${fmt(y+r)} l`,`${fmt(x-r)} ${fmt(y)} l`,'h S'];
+    if(p.shape==='triangle')return [`${fmt(x)} ${fmt(y-r)} m`,`${fmt(x+r)} ${fmt(y+r)} l`,`${fmt(x-r)} ${fmt(y+r)} l`,'h S'];
+    return [`${fmt(x)} ${fmt(y+r*.95)} m`,`${fmt(x-r*.95)} ${fmt(y+r*.25)} ${fmt(x-r*.9)} ${fmt(y-r*.65)} ${fmt(x-r*.42)} ${fmt(y-r*.65)} c`,`${fmt(x-r*.14)} ${fmt(y-r*.65)} ${fmt(x)} ${fmt(y-r*.42)} ${fmt(x)} ${fmt(y-r*.2)} c`,`${fmt(x)} ${fmt(y-r*.42)} ${fmt(x+r*.14)} ${fmt(y-r*.65)} ${fmt(x+r*.42)} ${fmt(y-r*.65)} c`,`${fmt(x+r*.9)} ${fmt(y-r*.65)} ${fmt(x+r*.95)} ${fmt(y+r*.25)} ${fmt(x)} ${fmt(y+r*.95)} c`,'h S'];
+  }
   function pdf(r) {
-    validateColumns(r);
-    const p=r.p,scale=72/25.4,k=0.5522847498307936,rad=p.diameter/2,d=rad*k;
-    const rgb=[1,3,5].map(i=>parseInt(p.color.slice(i,i+2),16)/255);
-    const commands=['q',`${fmt(scale)} 0 0 ${fmt(-scale)} 0 ${fmt(p.height*scale)} cm`,`${fmt(p.stroke)} w`,`${rgb.map(fmt).join(' ')} RG`];
-    for(const {x,y} of r.holes)commands.push(
-      `${fmt(x+rad)} ${fmt(y)} m`,
-      `${fmt(x+rad)} ${fmt(y+d)} ${fmt(x+d)} ${fmt(y+rad)} ${fmt(x)} ${fmt(y+rad)} c`,
-      `${fmt(x-d)} ${fmt(y+rad)} ${fmt(x-rad)} ${fmt(y+d)} ${fmt(x-rad)} ${fmt(y)} c`,
-      `${fmt(x-rad)} ${fmt(y-d)} ${fmt(x-d)} ${fmt(y-rad)} ${fmt(x)} ${fmt(y-rad)} c`,
-      `${fmt(x+d)} ${fmt(y-rad)} ${fmt(x+rad)} ${fmt(y-d)} ${fmt(x+rad)} ${fmt(y)} c`, 'h S');
-    commands.push('Q');
-    const stream=commands.join('\n')+'\n';
-    const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${fmt(p.width*scale)} ${fmt(p.height*scale)}] /Resources << >> /Contents 4 0 R >>`,
-      `<< /Length ${stream.length} >>\nstream\n${stream}endstream`];
-    let out='%PDF-1.4\n',offsets=[0];
-    objects.forEach((obj,i)=>{offsets.push(out.length);out+=`${i+1} 0 obj\n${obj}\nendobj\n`;});
-    const xref=out.length;
-    out+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
+    const pages=r.pages||[r];for(const page of pages)validateColumns(page);
+    const p=pages[0].p,scale=72/25.4,rgb=[1,3,5].map(i=>parseInt(p.color.slice(i,i+2),16)/255);
+    const streams=pages.map(page=>{
+      const commands=['q',`${fmt(scale)} 0 0 ${fmt(-scale)} 0 ${fmt(p.height*scale)} cm`,`${fmt(p.stroke)} w`,`${rgb.map(fmt).join(' ')} RG`];
+      for(const h of page.holes)commands.push(...pdfPathCommands(h,p));commands.push('Q');return commands.join('\n')+'\n';
+    });
+    const pageCount=pages.length,firstPageObj=3,firstContentObj=3+pageCount;
+    const kids=Array.from({length:pageCount},(_,i)=>`${firstPageObj+i} 0 R`).join(' ');
+    const objects=['<< /Type /Catalog /Pages 2 0 R >>',`<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>`];
+    for(let i=0;i<pageCount;i++)objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${fmt(p.width*scale)} ${fmt(p.height*scale)}] /Resources << >> /Contents ${firstContentObj+i} 0 R >>`);
+    for(const stream of streams)objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
+    let out='%PDF-1.4\n',offsets=[0];objects.forEach((obj,i)=>{offsets.push(out.length);out+=`${i+1} 0 obj\n${obj}\nendobj\n`;});
+    const xref=out.length;out+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
     for(const offset of offsets.slice(1))out+=`${String(offset).padStart(10,'0')} 00000 n \n`;
-    out+=`trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-    return out;
+    out+=`trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;return out;
   }
   const api={defaults,minify,ascii,layout,position,columnPosition,characterTable,validateColumns,separators,svg,pdf,lex};
   if(typeof module!=='undefined')module.exports=api;else root.Bouchon=api;
