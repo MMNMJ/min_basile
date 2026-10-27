@@ -37,7 +37,7 @@ $('cancel').onclick=()=>$('settings').close();
 $('preset').onchange=e=>{if(e.target.value!=='custom'){const [w,h]=e.target.value.split(',');$('settingsForm').elements.width.value=w;$('settingsForm').elements.height.value=h;marginPreview();}};
 $('marginPreset').onchange=e=>{if(e.target.value!=='custom'){for(const k of ['top','bottom','left','right'])$('settingsForm').elements[k].value=e.target.value;marginPreview();}};
 $('settingsForm').addEventListener('input',e=>{if(['width','height'].includes(e.target.name))$('preset').value='custom';if(['top','bottom','left','right'].includes(e.target.name))$('marginPreset').value='custom';marginPreview();});
-$('settingsForm').onsubmit=e=>{e.preventDefault();try{const next=B.layout($('corrected').value,formParams());params=next.p;result=next;previewPage=0;render();$('export').disabled=false;$('settings').close();status(`변환 완료 · ${result.bits.length.toLocaleString()}비트 · ${result.pageCount}페이지\n1값만 타공합니다. PDF는 전체 페이지, SVG는 페이지별 파일로 저장합니다.`);}catch(e){$('settingError').textContent=e.message;}};
+$('settingsForm').onsubmit=e=>{e.preventDefault();try{const next=B.layout($('corrected').value,formParams());params=next.p;result=next;previewPage=0;render();$('export').disabled=false;$('settings').close();status(`변환 완료 · ${result.bits.length.toLocaleString()}비트 · ${result.pageCount}페이지\n1값만 타공합니다. PDF는 여러 페이지, SVG는 모든 판을 하나의 파일에 판별 그룹으로 저장합니다.`);}catch(e){$('settingError').textContent=e.message;}};
 function shapeElement(el,h,p,style={}) {
  const common={fill:'none',stroke:style.stroke||p.color,'stroke-width':style.strokeWidth??Math.max(.17,p.stroke)};
  const r=p.diameter/2;
@@ -70,11 +70,11 @@ $('exportForm').onsubmit=e=>{e.preventDefault();if(!result)return;
  const formats=[...($('saveSVG').checked?['svg']:[]),...($('savePDF').checked?['pdf']:[])];
  if(!formats.length){$('exportError').textContent='출력 형식을 하나 이상 선택하세요.';return;}
  let payloads;
- try{payloads=[];if(formats.includes('pdf'))payloads.push({format:'pdf',data:B.pdf(result),page:null});if(formats.includes('svg'))result.pages.forEach((page,i)=>payloads.push({format:'svg',data:B.svg(page,separatorOptions()),page:i+1}));}
+ try{payloads=[];if(formats.includes('pdf'))payloads.push({format:'pdf',data:B.pdf(result),page:null});if(formats.includes('svg'))payloads.push({format:'svg',data:B.svg(result,separatorOptions()),page:null});}
  catch(error){$('exportError').textContent=error.message;return;}
  const date=new Date(),pad=n=>String(n).padStart(2,'0');const stamp=`${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
- for(const {format,data,page} of payloads){const url=URL.createObjectURL(new Blob([data],{type:format==='svg'?'image/svg+xml;charset=utf-8':'application/pdf'}));const a=document.createElement('a');a.href=url;const suffix=page?`_page-${String(page).padStart(2,'0')}`:'';a.download=`Min_Basile_Bouchon_${stamp}_Arduino_ASCII_${result.p.width}x${result.p.height}_${result.p.layoutMode}_${result.p.shape}${suffix}.${format}`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
- $('exportDialog').close();status(`${formats.join(' / ').toUpperCase()} 다운로드를 요청했습니다. 저장 위치는 브라우저의 다운로드 설정을 따릅니다.`);
+ for(const {format,data,page} of payloads){const url=URL.createObjectURL(new Blob([data],{type:format==='svg'?'image/svg+xml;charset=utf-8':'application/pdf'}));const a=document.createElement('a');a.href=url;const suffix=format==='svg'&&result.pageCount>1?'_all-boards_layers':'';a.download=`Min_Basile_Bouchon_${stamp}_Arduino_ASCII_${result.p.width}x${result.p.height}_${result.p.layoutMode}_${result.p.shape}${suffix}.${format}`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+ $('exportDialog').close();status(`${formats.join(' / ').toUpperCase()} 다운로드를 요청했습니다. SVG는 ${result.pageCount}개 판이 하나의 파일에 포함됩니다.`);
 };
 
 function renderDebug(){

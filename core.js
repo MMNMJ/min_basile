@@ -232,12 +232,18 @@
     return `<path d="M ${x} ${fmt(h.y+r*.95)} C ${fmt(h.x-r*.95)} ${fmt(h.y+r*.25)} ${fmt(h.x-r*.9)} ${fmt(h.y-r*.65)} ${fmt(h.x-r*.42)} ${fmt(h.y-r*.65)} C ${fmt(h.x-r*.14)} ${fmt(h.y-r*.65)} ${x} ${fmt(h.y-r*.42)} ${x} ${fmt(h.y-r*.2)} C ${x} ${fmt(h.y-r*.42)} ${fmt(h.x+r*.14)} ${fmt(h.y-r*.65)} ${fmt(h.x+r*.42)} ${fmt(h.y-r*.65)} C ${fmt(h.x+r*.9)} ${fmt(h.y-r*.65)} ${fmt(h.x+r*.95)} ${fmt(h.y+r*.25)} ${x} ${fmt(h.y+r*.95)} Z"/>`;
   }
   function svg(r,separatorOptions={}) {
-    if(r.pages&&r.pages.length!==1)throw Error('여러 페이지 SVG는 페이지별로 저장해야 합니다.');
-    if(r.pages)r=r.pages[0];
+    const pages=r.pages||[r];
     validateColumns(r);
-    const p=r.p,{settings,lines}=separators(r,separatorOptions);
-    const separatorGroup=lines.length?`<g id="row-group-separators" fill="none" stroke="${settings.color}" stroke-width="${fmt(settings.stroke)}" stroke-linecap="butt">\n${lines.map(l=>`<line id="${l.id}" x1="${fmt(l.x1)}" y1="${fmt(l.y)}" x2="${fmt(l.x2)}" y2="${fmt(l.y)}"/>`).join('\n')}\n</g>\n`:'';
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(p.width)}mm" height="${fmt(p.height)}mm" viewBox="0 0 ${fmt(p.width)} ${fmt(p.height)}">\n<g fill="none" stroke="${p.color}" stroke-width="${fmt(p.stroke)}" stroke-linejoin="round">\n${r.holes.map(h=>shapeSvg(h,p)).join('\n')}\n</g>\n${separatorGroup}</svg>\n`;
+    const p=pages[0].p;
+    const groups=pages.map((page,i)=>{
+      const boardNumber=Number.isInteger(page.pageIndex)?page.pageIndex+1:i+1;
+      const boardId=`Board_${String(boardNumber).padStart(2,'0')}`;
+      const {settings,lines}=separators(page,separatorOptions);
+      const separatorId=pages.length===1?'row-group-separators':`${boardId}_row-group-separators`;
+      const separatorGroup=lines.length?`<g id="${separatorId}" fill="none" stroke="${settings.color}" stroke-width="${fmt(settings.stroke)}" stroke-linecap="butt">\n${lines.map(line=>`<line id="${pages.length===1?line.id:`${boardId}_${line.id}`}" x1="${fmt(line.x1)}" y1="${fmt(line.y)}" x2="${fmt(line.x2)}" y2="${fmt(line.y)}"/>`).join('\n')}\n</g>\n`:'';
+      return `<g id="${boardId}" data-name="${boardId}" inkscape:groupmode="layer" inkscape:label="판 ${boardNumber}">\n<g id="${boardId}_holes" fill="none" stroke="${p.color}" stroke-width="${fmt(p.stroke)}" stroke-linejoin="round">\n${page.holes.map(h=>shapeSvg(h,p)).join('\n')}\n</g>\n${separatorGroup}</g>`;
+    });
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${fmt(p.width)}mm" height="${fmt(p.height)}mm" viewBox="0 0 ${fmt(p.width)} ${fmt(p.height)}">\n${groups.join('\n')}\n</svg>\n`;
   }
   // PDF user-space uses points; this matrix makes every path coordinate millimetres.
   // Four cubic Bezier arcs are the standard vector representation of a PDF circle.
