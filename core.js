@@ -75,7 +75,7 @@
     const p={...defaults,...options};
     const keys=['width','height','top','bottom','left','right','diameter','stroke'];
     if(!['continuous','column'].includes(p.layoutMode))throw Error('올바른 Layout Mode를 선택하세요.');
-    if(!['circle','diamond','triangle','heart','square'].includes(p.shape))throw Error('올바른 타공 모양을 선택하세요.');
+    if(!['circle','diamond','triangle','heart','square','custom'].includes(p.shape))throw Error('올바른 타공 모양을 선택하세요.');
     if(p.layoutMode==='continuous')keys.push('gap','rowGap');
     else {
       keys.push('charactersPerRow');
@@ -223,31 +223,95 @@
     }
     return {settings,lines};
   }
-  function shapeSvg(h,p) {
+  function customScale(custom) {
+    if(!custom||!custom.bbox||!custom.markup)throw Error('사용자 지정 SVG 도형을 먼저 불러오세요.');
+    const b=custom.bbox,size=Number(custom.size);
+    if(!Number.isFinite(size)||size<=0||!Number.isFinite(b.width)||!Number.isFinite(b.height)||b.width<=0||b.height<=0)throw Error('사용자 지정 SVG 도형의 크기 또는 경계값이 올바르지 않습니다.');
+    if(custom.keepAspect!==false) {
+      const scale=size/Math.max(b.width,b.height);
+      return {sx:scale,sy:scale,cx:b.x+b.width/2,cy:b.y+b.height/2,width:b.width*scale,height:b.height*scale};
+    }
+    return {sx:size/b.width,sy:size/b.height,cx:b.x+b.width/2,cy:b.y+b.height/2,width:size,height:size};
+  }
+  function shapeSvg(h,p,custom=null) {
     const r=p.diameter/2,x=fmt(h.x),y=fmt(h.y),rr=fmt(r);
+    if(p.shape==='custom') {
+      const q=customScale(custom),tx=h.x-q.cx*q.sx,ty=h.y-q.cy*q.sy;
+      return `<g class="custom-vector-motif" transform="matrix(${fmt(q.sx)} 0 0 ${fmt(q.sy)} ${fmt(tx)} ${fmt(ty)})">${custom.markup}</g>`;
+    }
     if(p.shape==='circle')return `<circle cx="${x}" cy="${y}" r="${rr}"/>`;
     if(p.shape==='square')return `<rect x="${fmt(h.x-r)}" y="${fmt(h.y-r)}" width="${fmt(p.diameter)}" height="${fmt(p.diameter)}"/>`;
     if(p.shape==='diamond')return `<path d="M ${x} ${fmt(h.y-r)} L ${fmt(h.x+r)} ${y} L ${x} ${fmt(h.y+r)} L ${fmt(h.x-r)} ${y} Z"/>`;
     if(p.shape==='triangle')return `<path d="M ${x} ${fmt(h.y-r)} L ${fmt(h.x+r)} ${fmt(h.y+r)} L ${fmt(h.x-r)} ${fmt(h.y+r)} Z"/>`;
     return `<path d="M ${x} ${fmt(h.y+r*.95)} C ${fmt(h.x-r*.95)} ${fmt(h.y+r*.25)} ${fmt(h.x-r*.9)} ${fmt(h.y-r*.65)} ${fmt(h.x-r*.42)} ${fmt(h.y-r*.65)} C ${fmt(h.x-r*.14)} ${fmt(h.y-r*.65)} ${x} ${fmt(h.y-r*.42)} ${x} ${fmt(h.y-r*.2)} C ${x} ${fmt(h.y-r*.42)} ${fmt(h.x+r*.14)} ${fmt(h.y-r*.65)} ${fmt(h.x+r*.42)} ${fmt(h.y-r*.65)} C ${fmt(h.x+r*.9)} ${fmt(h.y-r*.65)} ${fmt(h.x+r*.95)} ${fmt(h.y+r*.25)} ${x} ${fmt(h.y+r*.95)} Z"/>`;
   }
-  function svg(r,separatorOptions={}) {
+  function svg(r,separatorOptions={},custom=null) {
     const pages=r.pages||[r];
     validateColumns(r);
     const p=pages[0].p;
+    if(p.shape==='custom')customScale(custom);
     const groups=pages.map((page,i)=>{
       const boardNumber=Number.isInteger(page.pageIndex)?page.pageIndex+1:i+1;
       const boardId=`Board_${String(boardNumber).padStart(2,'0')}`;
       const {settings,lines}=separators(page,separatorOptions);
       const separatorId=pages.length===1?'row-group-separators':`${boardId}_row-group-separators`;
       const separatorGroup=lines.length?`<g id="${separatorId}" fill="none" stroke="${settings.color}" stroke-width="${fmt(settings.stroke)}" stroke-linecap="butt">\n${lines.map(line=>`<line id="${pages.length===1?line.id:`${boardId}_${line.id}`}" x1="${fmt(line.x1)}" y1="${fmt(line.y)}" x2="${fmt(line.x2)}" y2="${fmt(line.y)}"/>`).join('\n')}\n</g>\n`:'';
-      return `<g id="${boardId}" data-name="${boardId}" inkscape:groupmode="layer" inkscape:label="판 ${boardNumber}">\n<g id="${boardId}_holes" fill="none" stroke="${p.color}" stroke-width="${fmt(p.stroke)}" stroke-linejoin="round">\n${page.holes.map(h=>shapeSvg(h,p)).join('\n')}\n</g>\n${separatorGroup}</g>`;
+      return `<g id="${boardId}" data-name="${boardId}" inkscape:groupmode="layer" inkscape:label="판 ${boardNumber}">\n<g id="${boardId}_holes" fill="none" stroke="${p.color}" stroke-width="${fmt(p.stroke)}" stroke-linejoin="round">\n${page.holes.map(h=>shapeSvg(h,p,custom)).join('\n')}\n</g>\n${separatorGroup}</g>`;
     });
     return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${fmt(p.width)}mm" height="${fmt(p.height)}mm" viewBox="0 0 ${fmt(p.width)} ${fmt(p.height)}">\n${groups.join('\n')}\n</svg>\n`;
   }
   // PDF user-space uses points; this matrix makes every path coordinate millimetres.
   // Four cubic Bezier arcs are the standard vector representation of a PDF circle.
-  function pdfPathCommands(h,p) {
+  function customPathPdf(d) {
+    const tokens=String(d||'').match(/[A-Za-z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g)||[];
+    let i=0,cmd='',x=0,y=0,startX=0,startY=0,lastC=null,lastQ=null;const out=[];
+    const num=()=>{if(i>=tokens.length||/[A-Za-z]/.test(tokens[i]))throw Error('SVG path 좌표가 올바르지 않습니다.');return Number(tokens[i++]);};
+    const hasNum=()=>i<tokens.length&&!/[A-Za-z]/.test(tokens[i]);
+    while(i<tokens.length) {
+      if(/[A-Za-z]/.test(tokens[i]))cmd=tokens[i++]; else if(!cmd)throw Error('SVG path 명령이 올바르지 않습니다.');
+      const rel=cmd===cmd.toLowerCase(),u=cmd.toUpperCase();
+      if(u==='A')throw Error('SVG path의 arc(A) 명령은 현재 사용자 지정 PDF 출력에서 지원하지 않습니다. Illustrator에서 곡선을 일반 path로 확장해 다시 저장하세요.');
+      if(u==='Z'){out.push('h');x=startX;y=startY;lastC=lastQ=null;cmd='';continue;}
+      if(u==='M') {
+        let first=true;while(hasNum()){let nx=num(),ny=num();if(rel){nx+=x;ny+=y;}x=nx;y=ny;if(first){out.push(`${fmt(x)} ${fmt(y)} m`);startX=x;startY=y;first=false;}else out.push(`${fmt(x)} ${fmt(y)} l`);}
+        lastC=lastQ=null;continue;
+      }
+      if(u==='L'){while(hasNum()){let nx=num(),ny=num();if(rel){nx+=x;ny+=y;}x=nx;y=ny;out.push(`${fmt(x)} ${fmt(y)} l`);}lastC=lastQ=null;continue;}
+      if(u==='H'){while(hasNum()){let nx=num();if(rel)nx+=x;x=nx;out.push(`${fmt(x)} ${fmt(y)} l`);}lastC=lastQ=null;continue;}
+      if(u==='V'){while(hasNum()){let ny=num();if(rel)ny+=y;y=ny;out.push(`${fmt(x)} ${fmt(y)} l`);}lastC=lastQ=null;continue;}
+      if(u==='C'){while(hasNum()){let x1=num(),y1=num(),x2=num(),y2=num(),nx=num(),ny=num();if(rel){x1+=x;y1+=y;x2+=x;y2+=y;nx+=x;ny+=y;}out.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(nx)} ${fmt(ny)} c`);x=nx;y=ny;lastC={x:x2,y:y2};lastQ=null;}continue;}
+      if(u==='S'){while(hasNum()){let x2=num(),y2=num(),nx=num(),ny=num();if(rel){x2+=x;y2+=y;nx+=x;ny+=y;}const x1=lastC?2*x-lastC.x:x,y1=lastC?2*y-lastC.y:y;out.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(nx)} ${fmt(ny)} c`);x=nx;y=ny;lastC={x:x2,y:y2};lastQ=null;}continue;}
+      if(u==='Q'){while(hasNum()){let qx=num(),qy=num(),nx=num(),ny=num();if(rel){qx+=x;qy+=y;nx+=x;ny+=y;}const c1x=x+2*(qx-x)/3,c1y=y+2*(qy-y)/3,c2x=nx+2*(qx-nx)/3,c2y=ny+2*(qy-ny)/3;out.push(`${fmt(c1x)} ${fmt(c1y)} ${fmt(c2x)} ${fmt(c2y)} ${fmt(nx)} ${fmt(ny)} c`);x=nx;y=ny;lastQ={x:qx,y:qy};lastC=null;}continue;}
+      if(u==='T'){while(hasNum()){let nx=num(),ny=num();if(rel){nx+=x;ny+=y;}const qx=lastQ?2*x-lastQ.x:x,qy=lastQ?2*y-lastQ.y:y,c1x=x+2*(qx-x)/3,c1y=y+2*(qy-y)/3,c2x=nx+2*(qx-nx)/3,c2y=ny+2*(qy-ny)/3;out.push(`${fmt(c1x)} ${fmt(c1y)} ${fmt(c2x)} ${fmt(c2y)} ${fmt(nx)} ${fmt(ny)} c`);x=nx;y=ny;lastQ={x:qx,y:qy};lastC=null;}continue;}
+      throw Error(`지원하지 않는 SVG path 명령 ${cmd}가 있습니다.`);
+    }
+    return out;
+  }
+  function primitivePdfPath(primitive) {
+    const a=primitive.attrs||{},type=primitive.type,k=0.5522847498307936;
+    if(type==='path')return customPathPdf(a.d);
+    if(type==='line')return [`${fmt(a.x1)} ${fmt(a.y1)} m`,`${fmt(a.x2)} ${fmt(a.y2)} l`];
+    if(type==='polyline'||type==='polygon') {
+      const pts=a.points||[];if(!pts.length)return[];const out=[`${fmt(pts[0][0])} ${fmt(pts[0][1])} m`];for(const p of pts.slice(1))out.push(`${fmt(p[0])} ${fmt(p[1])} l`);if(type==='polygon')out.push('h');return out;
+    }
+    if(type==='rect'){const x=a.x,y=a.y,w=a.width,h=a.height;return [`${fmt(x)} ${fmt(y)} m`,`${fmt(x+w)} ${fmt(y)} l`,`${fmt(x+w)} ${fmt(y+h)} l`,`${fmt(x)} ${fmt(y+h)} l`,'h'];}
+    if(type==='circle'||type==='ellipse') {
+      const cx=a.cx,cy=a.cy,rx=type==='circle'?a.r:a.rx,ry=type==='circle'?a.r:a.ry,dx=rx*k,dy=ry*k;
+      return [`${fmt(cx+rx)} ${fmt(cy)} m`,`${fmt(cx+rx)} ${fmt(cy+dy)} ${fmt(cx+dx)} ${fmt(cy+ry)} ${fmt(cx)} ${fmt(cy+ry)} c`,`${fmt(cx-dx)} ${fmt(cy+ry)} ${fmt(cx-rx)} ${fmt(cy+dy)} ${fmt(cx-rx)} ${fmt(cy)} c`,`${fmt(cx-rx)} ${fmt(cy-dy)} ${fmt(cx-dx)} ${fmt(cy-ry)} ${fmt(cx)} ${fmt(cy-ry)} c`,`${fmt(cx+dx)} ${fmt(cy-ry)} ${fmt(cx+rx)} ${fmt(cy-dy)} ${fmt(cx+rx)} ${fmt(cy)} c`,'h'];
+    }
+    throw Error('지원하지 않는 사용자 지정 벡터 요소가 있습니다.');
+  }
+  function customPdfCommands(h,p,custom) {
+    const q=customScale(custom),tx=h.x-q.cx*q.sx,ty=h.y-q.cy*q.sy,out=[];
+    if(!Array.isArray(custom.primitives)||!custom.primitives.length)throw Error('사용자 지정 SVG의 벡터 경로 정보가 없습니다.');
+    for(const primitive of custom.primitives) {
+      const m=primitive.matrix||[1,0,0,1,0,0],a=q.sx*m[0],b=q.sy*m[1],c=q.sx*m[2],d=q.sy*m[3],e=q.sx*m[4]+tx,f=q.sy*m[5]+ty;
+      out.push('q',`${fmt(a)} ${fmt(b)} ${fmt(c)} ${fmt(d)} ${fmt(e)} ${fmt(f)} cm`,...primitivePdfPath(primitive),'S','Q');
+    }
+    return out;
+  }
+  function pdfPathCommands(h,p,custom=null) {
+    if(p.shape==='custom')return customPdfCommands(h,p,custom);
     const x=h.x,y=h.y,r=p.diameter/2,k=0.5522847498307936,d=r*k;
     if(p.shape==='circle')return [`${fmt(x+r)} ${fmt(y)} m`,`${fmt(x+r)} ${fmt(y+d)} ${fmt(x+d)} ${fmt(y+r)} ${fmt(x)} ${fmt(y+r)} c`,`${fmt(x-d)} ${fmt(y+r)} ${fmt(x-r)} ${fmt(y+d)} ${fmt(x-r)} ${fmt(y)} c`,`${fmt(x-r)} ${fmt(y-d)} ${fmt(x-d)} ${fmt(y-r)} ${fmt(x)} ${fmt(y-r)} c`,`${fmt(x+d)} ${fmt(y-r)} ${fmt(x+r)} ${fmt(y-d)} ${fmt(x+r)} ${fmt(y)} c`,'h S'];
     if(p.shape==='square')return [`${fmt(x-r)} ${fmt(y-r)} m`,`${fmt(x+r)} ${fmt(y-r)} l`,`${fmt(x+r)} ${fmt(y+r)} l`,`${fmt(x-r)} ${fmt(y+r)} l`,'h S'];
@@ -255,12 +319,14 @@
     if(p.shape==='triangle')return [`${fmt(x)} ${fmt(y-r)} m`,`${fmt(x+r)} ${fmt(y+r)} l`,`${fmt(x-r)} ${fmt(y+r)} l`,'h S'];
     return [`${fmt(x)} ${fmt(y+r*.95)} m`,`${fmt(x-r*.95)} ${fmt(y+r*.25)} ${fmt(x-r*.9)} ${fmt(y-r*.65)} ${fmt(x-r*.42)} ${fmt(y-r*.65)} c`,`${fmt(x-r*.14)} ${fmt(y-r*.65)} ${fmt(x)} ${fmt(y-r*.42)} ${fmt(x)} ${fmt(y-r*.2)} c`,`${fmt(x)} ${fmt(y-r*.42)} ${fmt(x+r*.14)} ${fmt(y-r*.65)} ${fmt(x+r*.42)} ${fmt(y-r*.65)} c`,`${fmt(x+r*.9)} ${fmt(y-r*.65)} ${fmt(x+r*.95)} ${fmt(y+r*.25)} ${fmt(x)} ${fmt(y+r*.95)} c`,'h S'];
   }
-  function pdf(r) {
+  function pdf(r,custom=null) {
     const pages=r.pages||[r];for(const page of pages)validateColumns(page);
     const p=pages[0].p,scale=72/25.4,rgb=[1,3,5].map(i=>parseInt(p.color.slice(i,i+2),16)/255);
+    if(p.shape==='custom')customScale(custom);
     const streams=pages.map(page=>{
-      const commands=['q',`${fmt(scale)} 0 0 ${fmt(-scale)} 0 ${fmt(p.height*scale)} cm`,`${fmt(p.stroke)} w`,`${rgb.map(fmt).join(' ')} RG`];
-      for(const h of page.holes)commands.push(...pdfPathCommands(h,p));commands.push('Q');return commands.join('\n')+'\n';
+      const strokeCommand=p.shape==='custom'?'0 1 1 0 K':`${rgb.map(fmt).join(' ')} RG`;
+      const commands=['q',`${fmt(scale)} 0 0 ${fmt(-scale)} 0 ${fmt(p.height*scale)} cm`,`${fmt(p.stroke)} w`,strokeCommand];
+      for(const h of page.holes)commands.push(...pdfPathCommands(h,p,custom));commands.push('Q');return commands.join('\n')+'\n';
     });
     const pageCount=pages.length,firstPageObj=3,firstContentObj=3+pageCount;
     const kids=Array.from({length:pageCount},(_,i)=>`${firstPageObj+i} 0 R`).join(' ');
@@ -272,6 +338,6 @@
     for(const offset of offsets.slice(1))out+=`${String(offset).padStart(10,'0')} 00000 n \n`;
     out+=`trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;return out;
   }
-  const api={defaults,minify,ascii,layout,position,columnPosition,characterTable,validateColumns,separators,svg,pdf,lex};
+  const api={defaults,minify,ascii,layout,position,columnPosition,characterTable,validateColumns,separators,svg,pdf,lex,customScale,customPathPdf};
   if(typeof module!=='undefined')module.exports=api;else root.Bouchon=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
