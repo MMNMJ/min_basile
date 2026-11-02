@@ -137,7 +137,7 @@ $('customVectorReset').onclick=()=>{customVector=null;$('customVectorSize').valu
 $('customVectorSize').addEventListener('input',()=>{updateCustomVectorStatus(result);marginPreview();if(result&&result.p.shape==='custom'){render();renderExportPreview();}});
 $('customVectorAspect').addEventListener('change',()=>{updateCustomVectorStatus(result);marginPreview();if(result&&result.p.shape==='custom'){render();renderExportPreview();}});
 
-$('settingsForm').onsubmit=e=>{e.preventDefault();try{const fp=formParams();if(fp.shape==='custom')customRenderData();const next=B.layout($('corrected').value,fp);params=next.p;result=next;previewPage=0;updateCustomVectorStatus(next);render();$('export').disabled=false;$('settings').close();status(`변환 완료 · ${result.bits.length.toLocaleString()}비트 · ${result.pageCount}페이지\n1값만 타공합니다. PDF는 여러 페이지, SVG는 모든 판을 하나의 파일에 판별 그룹으로 저장합니다.`);}catch(e){$('settingError').textContent=e.message;}};
+$('settingsForm').onsubmit=e=>{e.preventDefault();try{const fp=formParams();if(fp.shape==='custom')customRenderData();const next=B.layout($('corrected').value,fp);params=next.p;result=next;previewPage=0;updateCustomVectorStatus(next);render();$('export').disabled=false;$('settings').close();const warning=fp.shape==='custom'?customCollisionMessage(next):'';status(`변환 완료 · ${result.bits.length.toLocaleString()}비트 · ${result.pageCount}페이지\n1값만 타공합니다. PDF는 여러 페이지, SVG는 모든 판을 하나의 파일에 판별 그룹으로 저장합니다.${warning?`\n⚠ ${warning}`:''}`);}catch(e){$('settingError').textContent=e.message;}};
 function shapeElement(el,h,p,style={}) {
  const common={fill:'none',stroke:style.stroke||p.color,'stroke-width':style.strokeWidth??Math.max(.17,p.stroke),'stroke-linejoin':'round'};
  if(p.shape==='custom'){
